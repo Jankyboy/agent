@@ -13,4 +13,4 @@ steps:
         tty: false
         shell: ["bash.exe"]
     agents:
-      queue: "windows"
+      queue: windows-agent-development
