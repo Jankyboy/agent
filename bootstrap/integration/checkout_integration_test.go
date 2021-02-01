@@ -12,8 +12,19 @@ import (
 	"testing"
 
 	"github.com/buildkite/agent/v3/experiments"
-	"github.com/buildkite/bintest"
+	"github.com/buildkite/bintest/v3"
 )
+
+// Example commit info:
+//
+// commit 65e2f46931cf9fe1ba9e445d92d213cfa3be5312
+// Author:     Example Human <legit@example.com>
+// AuthorDate: Thu Jan 15 11:05:16 2015 +0800
+// Commit:     Example Human <legit@example.com>
+// CommitDate: Thu Jan 15 11:05:16 2015 +0800
+//
+//     hello world
+var commitPattern = bintest.MatchPattern(`(?ms)\Acommit [0-9a-f]+\n.*^Author:`)
 
 // Enable an experiment, returning a function to restore the previous state.
 // Usage: defer experimentWithUndo("foo")()
@@ -25,6 +36,47 @@ func experimentWithUndo(name string) func() {
 			experiments.Disable(name)
 		}
 	}
+}
+
+func TestCheckingOutGitHubPullRequestsWithGitMirrorsExperiment(t *testing.T) {
+	// t.Parallel() cannot be used with experiments.Enable()
+	defer experimentWithUndo("git-mirrors")()
+
+	tester, err := NewBootstrapTester()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tester.Close()
+
+	env := []string{
+		"BUILDKITE_GIT_CLONE_MIRROR_FLAGS=--bare",
+		"BUILDKITE_PULL_REQUEST=123",
+		"BUILDKITE_PIPELINE_PROVIDER=github",
+	}
+
+	// Actually execute git commands, but with expectations
+	git := tester.
+		MustMock(t, "git").
+		PassthroughToLocalCommand()
+
+	// But assert which ones are called
+	git.ExpectAll([][]interface{}{
+		{"clone", "--mirror", "--bare", "--", tester.Repo.Path, matchSubDir(tester.GitMirrorsDir)},
+		{"clone", "-v", "--reference", matchSubDir(tester.GitMirrorsDir), "--", tester.Repo.Path, "."},
+		{"clean", "-ffxdq"},
+		{"fetch", "--", "origin", "refs/pull/123/head"},
+		{"rev-parse", "FETCH_HEAD"},
+		{"checkout", "-f", "FETCH_HEAD"},
+		{"clean", "-ffxdq"},
+		{"--no-pager", "show", "HEAD", "-s", "--format=fuller", "--no-color", "--"},
+	})
+
+	// Mock out the meta-data calls to the agent after checkout
+	agent := tester.MustMock(t, "buildkite-agent")
+	agent.Expect("meta-data", "exists", "buildkite:git:commit").AndExitWith(1)
+	agent.Expect("meta-data", "set", "buildkite:git:commit").WithStdin(commitPattern)
+
+	tester.RunAndCheck(t, env...)
 }
 
 func TestWithResolvingCommitExperiment(t *testing.T) {
@@ -52,10 +104,10 @@ func TestWithResolvingCommitExperiment(t *testing.T) {
 	// But assert which ones are called
 	if experiments.IsEnabled(`git-mirrors`) {
 		git.ExpectAll([][]interface{}{
-			{"clone", "--bare", "--", tester.Repo.Path, matchSubDir(tester.GitMirrorsDir)},
+			{"clone", "--mirror", "--bare", "--", tester.Repo.Path, matchSubDir(tester.GitMirrorsDir)},
 			{"clone", "-v", "--reference", matchSubDir(tester.GitMirrorsDir), "--", tester.Repo.Path, "."},
 			{"clean", "-fdq"},
-			{"fetch", "-v", "origin", "master"},
+			{"fetch", "-v", "--", "origin", "master"},
 			{"checkout", "-f", "FETCH_HEAD"},
 			{"clean", "-fdq"},
 			{"--no-pager", "show", "HEAD", "-s", "--format=fuller", "--no-color", "--"},
@@ -65,7 +117,7 @@ func TestWithResolvingCommitExperiment(t *testing.T) {
 		git.ExpectAll([][]interface{}{
 			{"clone", "-v", "--", tester.Repo.Path, "."},
 			{"clean", "-fdq"},
-			{"fetch", "-v", "origin", "master"},
+			{"fetch", "-v", "--", "origin", "master"},
 			{"checkout", "-f", "FETCH_HEAD"},
 			{"clean", "-fdq"},
 			{"--no-pager", "show", "HEAD", "-s", "--format=fuller", "--no-color", "--"},
@@ -76,10 +128,11 @@ func TestWithResolvingCommitExperiment(t *testing.T) {
 	// Mock out the meta-data calls to the agent after checkout
 	agent := tester.MustMock(t, "buildkite-agent")
 	agent.Expect("meta-data", "exists", "buildkite:git:commit").AndExitWith(1)
-	agent.Expect("meta-data", "set", "buildkite:git:commit", bintest.MatchPattern(`^commit`)).AndExitWith(0)
+	agent.Expect("meta-data", "set", "buildkite:git:commit").WithStdin(commitPattern)
 
 	tester.RunAndCheck(t, env...)
 }
+
 func TestCheckingOutLocalGitProject(t *testing.T) {
 	t.Parallel()
 
@@ -91,7 +144,7 @@ func TestCheckingOutLocalGitProject(t *testing.T) {
 
 	env := []string{
 		"BUILDKITE_GIT_CLONE_FLAGS=-v",
-		"BUILDKITE_GIT_CLONE_MIRROR_FLAGS=--bare",
+		"BUILDKITE_GIT_CLONE_MIRROR_FLAGS=--config pack.threads=35",
 		"BUILDKITE_GIT_CLEAN_FLAGS=-fdq",
 		"BUILDKITE_GIT_FETCH_FLAGS=-v",
 	}
@@ -104,10 +157,10 @@ func TestCheckingOutLocalGitProject(t *testing.T) {
 	// But assert which ones are called
 	if experiments.IsEnabled(`git-mirrors`) {
 		git.ExpectAll([][]interface{}{
-			{"clone", "--bare", "--", tester.Repo.Path, matchSubDir(tester.GitMirrorsDir)},
+			{"clone", "--mirror", "--config", "pack.threads=35", "--", tester.Repo.Path, matchSubDir(tester.GitMirrorsDir)},
 			{"clone", "-v", "--reference", matchSubDir(tester.GitMirrorsDir), "--", tester.Repo.Path, "."},
 			{"clean", "-fdq"},
-			{"fetch", "-v", "origin", "master"},
+			{"fetch", "-v", "--", "origin", "master"},
 			{"checkout", "-f", "FETCH_HEAD"},
 			{"clean", "-fdq"},
 			{"--no-pager", "show", "HEAD", "-s", "--format=fuller", "--no-color", "--"},
@@ -116,7 +169,7 @@ func TestCheckingOutLocalGitProject(t *testing.T) {
 		git.ExpectAll([][]interface{}{
 			{"clone", "-v", "--", tester.Repo.Path, "."},
 			{"clean", "-fdq"},
-			{"fetch", "-v", "origin", "master"},
+			{"fetch", "-v", "--", "origin", "master"},
 			{"checkout", "-f", "FETCH_HEAD"},
 			{"clean", "-fdq"},
 			{"--no-pager", "show", "HEAD", "-s", "--format=fuller", "--no-color", "--"},
@@ -125,12 +178,8 @@ func TestCheckingOutLocalGitProject(t *testing.T) {
 
 	// Mock out the meta-data calls to the agent after checkout
 	agent := tester.MustMock(t, "buildkite-agent")
-	agent.
-		Expect("meta-data", "exists", "buildkite:git:commit").
-		AndExitWith(1)
-	agent.
-		Expect("meta-data", "set", "buildkite:git:commit", bintest.MatchAny()).
-		AndExitWith(0)
+	agent.Expect("meta-data", "exists", "buildkite:git:commit").AndExitWith(1)
+	agent.Expect("meta-data", "set", "buildkite:git:commit").WithStdin(commitPattern)
 
 	tester.RunAndCheck(t, env...)
 }
@@ -179,11 +228,11 @@ func TestCheckingOutLocalGitProjectWithSubmodules(t *testing.T) {
 	// But assert which ones are called
 	if experiments.IsEnabled(`git-mirrors`) {
 		git.ExpectAll([][]interface{}{
-			{"clone", "-v", "--mirror", "--", tester.Repo.Path, matchSubDir(tester.GitMirrorsDir)},
+			{"clone", "--mirror", "-v", "--", tester.Repo.Path, matchSubDir(tester.GitMirrorsDir)},
 			{"clone", "-v", "--reference", matchSubDir(tester.GitMirrorsDir), "--", tester.Repo.Path, "."},
 			{"clean", "-fdq"},
 			{"submodule", "foreach", "--recursive", "git clean -fdq"},
-			{"fetch", "-v", "origin", "master"},
+			{"fetch", "-v", "--", "origin", "master"},
 			{"checkout", "-f", "FETCH_HEAD"},
 			{"submodule", "sync", "--recursive"},
 			{"config", "--file", ".gitmodules", "--null", "--get-regexp", "submodule\\..+\\.url"},
@@ -198,7 +247,7 @@ func TestCheckingOutLocalGitProjectWithSubmodules(t *testing.T) {
 			{"clone", "-v", "--", tester.Repo.Path, "."},
 			{"clean", "-fdq"},
 			{"submodule", "foreach", "--recursive", "git clean -fdq"},
-			{"fetch", "-v", "origin", "master"},
+			{"fetch", "-v", "--", "origin", "master"},
 			{"checkout", "-f", "FETCH_HEAD"},
 			{"submodule", "sync", "--recursive"},
 			{"config", "--file", ".gitmodules", "--null", "--get-regexp", "submodule\\..+\\.url"},
@@ -212,12 +261,8 @@ func TestCheckingOutLocalGitProjectWithSubmodules(t *testing.T) {
 
 	// Mock out the meta-data calls to the agent after checkout
 	agent := tester.MustMock(t, "buildkite-agent")
-	agent.
-		Expect("meta-data", "exists", "buildkite:git:commit").
-		AndExitWith(1)
-	agent.
-		Expect("meta-data", "set", "buildkite:git:commit", bintest.MatchAny()).
-		AndExitWith(0)
+	agent.Expect("meta-data", "exists", "buildkite:git:commit").AndExitWith(1)
+	agent.Expect("meta-data", "set", "buildkite:git:commit").WithStdin(commitPattern)
 
 	tester.RunAndCheck(t, env...)
 }
@@ -267,11 +312,11 @@ func TestCheckingOutLocalGitProjectWithSubmodulesDisabled(t *testing.T) {
 	// But assert which ones are called
 	if experiments.IsEnabled(`git-mirrors`) {
 		git.ExpectAll([][]interface{}{
-			{"clone", "-v", "--mirror", "--", tester.Repo.Path, matchSubDir(tester.GitMirrorsDir)},
+			{"clone", "--mirror", "-v", "--", tester.Repo.Path, matchSubDir(tester.GitMirrorsDir)},
 			{"clone", "-v", "--reference", matchSubDir(tester.GitMirrorsDir), "--", tester.Repo.Path, "."},
 			{"clean", "-fdq"},
 			{"submodule", "foreach", "--recursive", "git clean -fdq"},
-			{"fetch", "-v", "origin", "master"},
+			{"fetch", "-v", "--", "origin", "master"},
 			{"checkout", "-f", "FETCH_HEAD"},
 			{"clean", "-fdq"},
 			{"--no-pager", "show", "HEAD", "-s", "--format=fuller", "--no-color", "--"},
@@ -281,7 +326,7 @@ func TestCheckingOutLocalGitProjectWithSubmodulesDisabled(t *testing.T) {
 			{"clone", "-v", "--", tester.Repo.Path, "."},
 			{"clean", "-fdq"},
 			{"submodule", "foreach", "--recursive", "git clean -fdq"},
-			{"fetch", "-v", "origin", "master"},
+			{"fetch", "-v", "--", "origin", "master"},
 			{"checkout", "-f", "FETCH_HEAD"},
 			{"clean", "-fdq"},
 			{"--no-pager", "show", "HEAD", "-s", "--format=fuller", "--no-color", "--"},
@@ -290,12 +335,8 @@ func TestCheckingOutLocalGitProjectWithSubmodulesDisabled(t *testing.T) {
 
 	// Mock out the meta-data calls to the agent after checkout
 	agent := tester.MustMock(t, "buildkite-agent")
-	agent.
-		Expect("meta-data", "exists", "buildkite:git:commit").
-		AndExitWith(1)
-	agent.
-		Expect("meta-data", "set", "buildkite:git:commit", bintest.MatchAny()).
-		AndExitWith(0)
+	agent.Expect("meta-data", "exists", "buildkite:git:commit").AndExitWith(1)
+	agent.Expect("meta-data", "set", "buildkite:git:commit").WithStdin(commitPattern)
 
 	tester.RunAndCheck(t, env...)
 }
@@ -324,10 +365,10 @@ func TestCheckingOutShallowCloneOfLocalGitProject(t *testing.T) {
 	// But assert which ones are called
 	if experiments.IsEnabled(`git-mirrors`) {
 		git.ExpectAll([][]interface{}{
-			{"clone", "--bare", "--", tester.Repo.Path, matchSubDir(tester.GitMirrorsDir)},
+			{"clone", "--mirror", "--bare", "--", tester.Repo.Path, matchSubDir(tester.GitMirrorsDir)},
 			{"clone", "--depth=1", "--reference", matchSubDir(tester.GitMirrorsDir), "--", tester.Repo.Path, "."},
 			{"clean", "-fdq"},
-			{"fetch", "--depth=1", "origin", "master"},
+			{"fetch", "--depth=1", "--", "origin", "master"},
 			{"checkout", "-f", "FETCH_HEAD"},
 			{"clean", "-fdq"},
 			{"--no-pager", "show", "HEAD", "-s", "--format=fuller", "--no-color", "--"},
@@ -336,7 +377,7 @@ func TestCheckingOutShallowCloneOfLocalGitProject(t *testing.T) {
 		git.ExpectAll([][]interface{}{
 			{"clone", "--depth=1", "--", tester.Repo.Path, "."},
 			{"clean", "-fdq"},
-			{"fetch", "--depth=1", "origin", "master"},
+			{"fetch", "--depth=1", "--", "origin", "master"},
 			{"checkout", "-f", "FETCH_HEAD"},
 			{"clean", "-fdq"},
 			{"--no-pager", "show", "HEAD", "-s", "--format=fuller", "--no-color", "--"},
@@ -345,12 +386,8 @@ func TestCheckingOutShallowCloneOfLocalGitProject(t *testing.T) {
 
 	// Mock out the meta-data calls to the agent after checkout
 	agent := tester.MustMock(t, "buildkite-agent")
-	agent.
-		Expect("meta-data", "exists", "buildkite:git:commit").
-		AndExitWith(1)
-	agent.
-		Expect("meta-data", "set", "buildkite:git:commit", bintest.MatchAny()).
-		AndExitWith(0)
+	agent.Expect("meta-data", "exists", "buildkite:git:commit").AndExitWith(1)
+	agent.Expect("meta-data", "set", "buildkite:git:commit").WithStdin(commitPattern)
 
 	tester.RunAndCheck(t, env...)
 }
@@ -365,14 +402,8 @@ func TestCheckingOutSetsCorrectGitMetadataAndSendsItToBuildkite(t *testing.T) {
 	defer tester.Close()
 
 	agent := tester.MustMock(t, "buildkite-agent")
-	agent.
-		Expect("meta-data", "exists", "buildkite:git:commit").
-		AndExitWith(1)
-
-	agent.
-		Expect("meta-data", "set", "buildkite:git:commit",
-			bintest.MatchPattern(`^commit`)).
-		AndExitWith(0)
+	agent.Expect("meta-data", "exists", "buildkite:git:commit").AndExitWith(1)
+	agent.Expect("meta-data", "set", "buildkite:git:commit").WithStdin(commitPattern)
 
 	tester.RunAndCheck(t)
 }
@@ -395,7 +426,7 @@ func TestCheckingOutWithSSHKeyscan(t *testing.T) {
 	git.IgnoreUnexpectedInvocations()
 
 	if experiments.IsEnabled(`git-mirrors`) {
-		git.Expect("clone", "-v", "--mirror", "--", "git@github.com:buildkite/agent.git", bintest.MatchAny()).
+		git.Expect("clone", "--mirror", "-v", "--", "git@github.com:buildkite/agent.git", bintest.MatchAny()).
 			AndExitWith(0)
 	} else {
 		git.Expect("clone", "-v", "--", "git@github.com:buildkite/agent.git", ".").
@@ -448,7 +479,7 @@ func TestCheckingOutWithSSHKeyscanAndUnscannableRepo(t *testing.T) {
 	git.IgnoreUnexpectedInvocations()
 
 	if experiments.IsEnabled(`git-mirrors`) {
-		git.Expect("clone", "-v", "--mirror", "--", "https://github.com/buildkite/bash-example.git", bintest.MatchAny()).
+		git.Expect("clone", "--mirror", "-v", "--", "https://github.com/buildkite/bash-example.git", bintest.MatchAny()).
 			AndExitWith(0)
 	} else {
 		git.Expect("clone", "-v", "--", "https://github.com/buildkite/bash-example.git", ".").
@@ -650,6 +681,69 @@ func TestRepositorylessCheckout(t *testing.T) {
 	tester.ExpectGlobalHook("pre-exit").Once()
 
 	tester.RunAndCheck(t)
+}
+
+func TestGitMirrorEnv(t *testing.T) {
+	// t.Parallel() cannot test experiment flags in parallel
+	defer experimentWithUndo("git-mirrors")()
+
+	tester, err := NewBootstrapTester()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tester.Close()
+
+	// assert the correct BUILDKITE_REPO_MIRROR _after_ the bootstrap has run
+	gitMirrorPath := ""
+	tester.ExpectGlobalHook("pre-command").Once().AndCallFunc(func(c *bintest.Call) {
+		gitMirrorPath = c.GetEnv("BUILDKITE_REPO_MIRROR")
+		c.Exit(0)
+	})
+
+	env := []string{
+		"BUILDKITE_GIT_CLONE_FLAGS=-v",
+		"BUILDKITE_GIT_CLONE_MIRROR_FLAGS=--bare",
+		"BUILDKITE_GIT_CLEAN_FLAGS=-fdq",
+		"BUILDKITE_GIT_FETCH_FLAGS=-v",
+	}
+
+	// Actually execute git commands, but with expectations
+	git := tester.
+		MustMock(t, "git").
+		PassthroughToLocalCommand()
+
+	// But assert which ones are called
+	if experiments.IsEnabled(`git-mirrors`) {
+		git.ExpectAll([][]interface{}{
+			{"clone", "--mirror", "--bare", "--", tester.Repo.Path, matchSubDir(tester.GitMirrorsDir)},
+			{"clone", "-v", "--reference", matchSubDir(tester.GitMirrorsDir), "--", tester.Repo.Path, "."},
+			{"clean", "-fdq"},
+			{"fetch", "-v", "--", "origin", "master"},
+			{"checkout", "-f", "FETCH_HEAD"},
+			{"clean", "-fdq"},
+			{"--no-pager", "show", "HEAD", "-s", "--format=fuller", "--no-color", "--"},
+		})
+	} else {
+		git.ExpectAll([][]interface{}{
+			{"clone", "-v", "--", tester.Repo.Path, "."},
+			{"clean", "-fdq"},
+			{"fetch", "-v", "--", "origin", "master"},
+			{"checkout", "-f", "FETCH_HEAD"},
+			{"clean", "-fdq"},
+			{"--no-pager", "show", "HEAD", "-s", "--format=fuller", "--no-color", "--"},
+		})
+	}
+
+	// Mock out the meta-data calls to the agent after checkout
+	agent := tester.MustMock(t, "buildkite-agent")
+	agent.Expect("meta-data", "exists", "buildkite:git:commit").AndExitWith(1)
+	agent.Expect("meta-data", "set", "buildkite:git:commit").WithStdin(commitPattern)
+
+	tester.RunAndCheck(t, env...)
+
+	if !strings.HasPrefix(gitMirrorPath, tester.GitMirrorsDir) {
+		t.Errorf("Expected BUILDKITE_REPO_MIRROR=%q to begin with %q", gitMirrorPath, tester.GitMirrorsDir)
+	}
 }
 
 type subDirMatcher struct {

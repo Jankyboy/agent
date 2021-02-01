@@ -5,6 +5,67 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [UNRELEASED](https://github.com/buildkite/agent/compare/v3.26.0...master)
+
+### Added
+* Add a Linux ppc64 build to the pipeline [#1362](https://github.com/buildkite/agent/pull/1362) ([ticky](https://github.com/ticky))
+* Add support for agent tracing using Datadog APM [#1273](https://github.com/buildkite/agent/pull/1273) ([goodspark](https://github.com/goodspark))
+* Agent can now upload artifacts using AssumedRoles using `BUILDKITE_S3_SESSION_TOKEN` [#1359](https://github.com/buildkite/agent/pull/1359) ([grahamc](https://github.com/grahamc))
+* Improvements to ARM64 support (i.e. Apple Silicon/M1) [#1346](https://github.com/buildkite/agent/pull/1346), [#1354](https://github.com/buildkite/agent/pull/1354), [#1343](https://github.com/buildkite/agent/pull/1343) ([ticky](https://github.com/ticky))
+
+### Changed
+* Compile the darwin/arm64 binary using go 1.16beta1 [#1352](https://github.com/buildkite/agent/pull/1352) ([yob](https://github.com/yob))
+* Use Docker CLI packages, update Docker Compose, and update centos to 8.x [#1351](https://github.com/buildkite/agent/pull/1351) ([RemcodM](https://github.com/RemcodM))
+
+## Fixed
+* Fixed an issue in #1314 that broke pull requests with git-mirrors [#1347](https://github.com/buildkite/agent/pull/1347) ([ticky](https://github.com/ticky))
+
+## [v3.26.0](https://github.com/buildkite/agent/compare/v3.25.0...v3.26.0) (2020-12-03)
+
+### Added
+
+* Compile an experimental native executable for Apple Silicon [#1339](https://github.com/buildkite/agent/pull/1339) ([yob](https://github.com/yob))
+  * Using a pre-release version of go, we'll switch to compiling with go 1.16 once it's released
+
+### Changed
+
+* Install script: use the arm64 binary for aarch64 machines [#1340](https://github.com/buildkite/agent/pull/1340) ([gc-plp](https://github.com/gc-plp))
+* Build with golang 1.15 [#1334](https://github.com/buildkite/agent/pull/1334) ([yob](https://github.com/yob))
+* Bump alpine docker image from alpine 3.8 to 3.12 [#1333](https://github.com/buildkite/agent/pull/1333) ([yob](https://github.com/yob))
+* Upgrade docker ubuntu to 20.04 focal [#1312](https://github.com/buildkite/agent/pull/1312) ([sj26](https://github.com/sj26))
+
+## [v3.25.0](https://github.com/buildkite/agent/compare/v3.24.0...v3.25.0) (2020-10-21)
+
+### Added
+* Add --mirror flag by default for mirror clones [#1328](https://github.com/buildkite/agent/pull/1328) ([chrislloyd](https://github.com/chrislloyd))
+* Add an agent-wide shutdown hook [#1275](https://github.com/buildkite/agent/pull/1275) ([goodspark](https://github.com/goodspark)) [#1322](https://github.com/buildkite/agent/pull/1322) ([pda](https://github.com/pda))
+
+### Fixed
+* Improve windows telemetry so that we report the version accurately in-platform [#1330](https://github.com/buildkite/agent/pull/1330) ([yob](https://github.com/yob)) [#1316](https://github.com/buildkite/agent/pull/1316) ([yob](https://github.com/yob))
+* Ensure no orphaned processes when Windows jobs complete [#1329](https://github.com/buildkite/agent/pull/1329) ([yob](https://github.com/yob))
+* Log error messages when canceling a running job fails [#1317](https://github.com/buildkite/agent/pull/1317) ([yob](https://github.com/yob))
+* gitCheckout() validates branch, plus unit tests [#1315](https://github.com/buildkite/agent/pull/1315) ([pda](https://github.com/pda))
+* gitFetch() terminates options with -- before repo/refspecs [#1314](https://github.com/buildkite/agent/pull/1314) ([pda](https://github.com/pda))
+
+## [v3.24.0](https://github.com/buildkite/agent/compare/v3.23.1...v3.24.0) (2020-09-29)
+
+### Fixed
+* Fix build script [#1300](https://github.com/buildkite/agent/pull/1300) ([goodspark](https://github.com/goodspark))
+* Fix typos [#1297](https://github.com/buildkite/agent/pull/1297) ([JuanitoFatas](https://github.com/JuanitoFatas))
+* Fix flaky tests: experiments and parallel tests don't mix [#1295](https://github.com/buildkite/agent/pull/1295) ([pda](https://github.com/pda))
+* artifact_uploader_test fixed for Windows. [#1288](https://github.com/buildkite/agent/pull/1288) ([pda](https://github.com/pda))
+* Windows integration tests: git file path quirk fix [#1291](https://github.com/buildkite/agent/pull/1291) ([pda](https://github.com/pda))
+
+### Changed
+* git-mirrors: set BUILDKITE_REPO_MIRROR=/path/to/mirror/repo [#1311](https://github.com/buildkite/agent/pull/1311) ([pda](https://github.com/pda))
+* Truncate BUILDKITE_MESSAGE to 64 KiB [#1307](https://github.com/buildkite/agent/pull/1307) ([pda](https://github.com/pda))
+* CI: windows tests on queue=buildkite-agent-windows without Docker [#1294](https://github.com/buildkite/agent/pull/1294) ([pda](https://github.com/pda))
+* buildkite:git:commit meta-data via stdin; avoid Argument List Too Long [#1302](https://github.com/buildkite/agent/pull/1302) ([pda](https://github.com/pda))
+* Expand the CLI test step [#1293](https://github.com/buildkite/agent/pull/1293) ([ticky](https://github.com/ticky))
+* Improve Apple Silicon Mac support [#1289](https://github.com/buildkite/agent/pull/1289) ([ticky](https://github.com/ticky))
+* update github.com/urfave/cli to the latest v1 release [#1287](https://github.com/buildkite/agent/pull/1287) ([yob](https://github.com/yob))
+
+
 ## [v3.23.1](https://github.com/buildkite/agent/compare/v3.23.0...v3.23.1) (2020-09-09)
 
 ### Fixed

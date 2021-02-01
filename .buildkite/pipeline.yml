@@ -13,16 +13,10 @@ steps:
 
   - name: ":hammer: :windows:"
     key: test-windows
-    command: ".buildkite\\steps\\tests.sh"
+    command: "bash .buildkite\\steps\\tests.sh"
     artifact_paths: junit-*.xml
-    plugins:
-      docker-compose#v3.0.0:
-        config: .buildkite/docker-compose.windows.yml
-        run: agent
-        tty: false
-        shell: ["bash.exe"]
     agents:
-      queue: "windows"
+      queue: buildkite-agent-windows
 
   - label: ":junit:"
     depends_on:
@@ -102,6 +96,16 @@ steps:
         config: .buildkite/docker-compose.yml
         run: agent
 
+  - name: ":linux: ppc64"
+    command: ".buildkite/steps/build-binary.sh linux ppc64"
+    key: build-binary-linux-ppc64
+    depends_on: test-linux # don't wait for slower windows tests
+    artifact_paths: "pkg/*"
+    plugins:
+      docker-compose#v3.0.0:
+        config: .buildkite/docker-compose.yml
+        run: agent
+
   - name: ":linux: ppc64le"
     command: ".buildkite/steps/build-binary.sh linux ppc64le"
     key: build-binary-linux-ppc64le
@@ -121,6 +125,16 @@ steps:
       docker-compose#v3.0.0:
         config: .buildkite/docker-compose.yml
         run: agent
+
+  - name: ":mac: arm64"
+    command: ".buildkite/steps/build-binary.sh darwin arm64"
+    key: build-binary-darwin-arm64
+    depends_on: test-linux # don't wait for slower windows tests
+    artifact_paths: "pkg/*"
+    plugins:
+      docker-compose#v3.0.0:
+        config: .buildkite/docker-compose.yml
+        run: agent1-16
 
   - name: ":freebsd: amd64"
     command: ".buildkite/steps/build-binary.sh freebsd amd64"
@@ -252,6 +266,7 @@ steps:
       - build-binary-linux-arm64
       - build-binary-linux-ppc64le
       - build-binary-darwin-amd64
+      - build-binary-darwin-arm64
       - build-binary-freebsd-amd64
       - build-binary-freebsd-386
       - build-binary-openbsd-amd64
